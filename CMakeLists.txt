@@ -1,11 +1,11 @@
-cmake_minimum_required(VERSION 2.8.6)
+cmake_minimum_required(VERSION 3.10)
 project(SeamAwareDecimater)
 
 SET(CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake)
 
 ## We need Eigen
-find_package(EIGEN REQUIRED)
-include_directories( "${EIGEN_INCLUDE_DIR}" )
+find_package(Eigen REQUIRED)
+include_directories( "${Eigen_INCLUDE_DIR}" )
 
 ## We need libigl
 find_package(LIBIGL REQUIRED)
@@ -16,11 +16,16 @@ add_definitions(-DIGL_NO_MOSEK)
 
 link_directories(
 	/usr/local/lib
-	${EIGEN_DIRS}
 ) 
 
-## We need C++11. Put this directive after CGAL's include.
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -g " )
+set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+# Set a default build type if none was specified
+if(NOT CMAKE_BUILD_TYPE)
+  message(STATUS "Setting build type to 'Release' as none was specified.")
+  set(CMAKE_BUILD_TYPE Release CACHE STRING "Choose the type of build, options are: Debug, Release, RelWithDebInfo, MinSizeRel." FORCE)
+endif()
 
 if ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang")
   add_compile_options(-stdlib=libc++)

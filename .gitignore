@@ -11,3 +11,5 @@ cmake_install.cmake
 CMakeFiles
 CMakeCache.txt
 build/*
+
+decimater

@@ -232,9 +232,28 @@ void cost_and_placement_qslim5d_halfedge (
 			// (x(4) - e0_v0) - t(e0_v1 - e0_v0) = 0
 			// (x(5) - e1_u0) - t(e1_u1 - e1_u0) = 0
 			// (x(6) - e1_v0) - t(e1_v1 - e1_v0) = 0
+			// Original code start
+			// RowVector2d vec[2] = {TC.row(e_p1[0].tci) - TC.row(e_p0[0].tci),
+			// 					  TC.row(e_p1[1].tci) - TC.row(e_p0[1].tci)};
+			// assert( vec[0].norm() != 0 && vec[1].norm() != 0 );
+			// Original code end
 			RowVector2d vec[2] = {TC.row(e_p1[0].tci) - TC.row(e_p0[0].tci),
-								  TC.row(e_p1[1].tci) - TC.row(e_p0[1].tci)};
-			assert( vec[0].norm() != 0 && vec[1].norm() != 0 );
+                      TC.row(e_p1[1].tci) - TC.row(e_p0[1].tci)};
+
+			// Check for zero-length UV edges and return infinite cost
+			const double uv_epsilon = 1e-10;
+			if (vec[0].norm() < uv_epsilon || vec[1].norm() < uv_epsilon) {
+				// Log this case for debugging
+				std::cerr << "WARNING: Detected zero-length UV edge between vertices " 
+						<< vi[0] << " and " << vi[1] 
+						<< " (UV edge lengths: " << vec[0].norm() << ", " << vec[1].norm() << ")" 
+						<< std::endl;
+				
+				// Return infinite cost to prevent this edge from being collapsed
+				cost = DINF;
+				return;
+			}
+			// New code end
 			MatrixXd CE(8,4);
 			VectorXd ce0(4);
 			CE.setZero();

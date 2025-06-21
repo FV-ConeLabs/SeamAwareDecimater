@@ -79,7 +79,7 @@ bool decimate_down_to(
     int seam_aware_degree
     )
 {
-#define DEBUG_DECIMATE_DOWN_TO
+// #define DEBUG_DECIMATE_DOWN_TO
     assert( target_num_vertices > 0 );
     assert( target_num_vertices < V.rows() );
     
