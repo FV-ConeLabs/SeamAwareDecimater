@@ -51,7 +51,8 @@ bool try_collapse_5d_Edge(
     EdgeMap & seam_edges, // TODO: A set of edges in V for vertices which lie on edges which should be preserved.
     MapV5d & Vmetrics, // TODO: The per-vertex data.
     int & a_e1,
-    int & a_e2);
+    int & a_e2,
+    bool preserve_boundaries = false);
         
 bool collapse_edge_with_uv(
     Eigen::MatrixXd & V,
@@ -69,7 +70,8 @@ bool collapse_edge_with_uv(
     std::vector<std::set<std::pair<double,int> >::iterator > & Qit,
     std::vector< placement_info_5d > & C,
     int & e,
-    bool test = false);
+    bool test = false,
+    bool preserve_boundaries = false);
 
 
 #endif

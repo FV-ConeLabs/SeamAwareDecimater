@@ -20,7 +20,8 @@ bool try_collapse_5d_Edge(
     EdgeMap & seam_edges, // TODO: A set of edges in V for vertices which lie on edges which should be preserved.
     MapV5d & Vmetrics, // TODO: The per-vertex data.
     int & a_e1,
-    int & a_e2)
+    int & a_e2,
+    bool preserve_boundaries)
 {
 // Assign this to 0 rather than, say, -1 so that deleted elements will get
 	// draw as degenerate elements at vertex 0 (which should always exist and
@@ -44,6 +45,43 @@ bool try_collapse_5d_Edge(
 	const int s = eflip?E(e,1):E(e,0);
 	const int d = eflip?E(e,0):E(e,1);
 	const bool collapse_on_seam = contains_edge( seam_edges, s, d );
+
+	// If this edge is a boundary edge and we want to preserve them, don't collapse.
+	if( preserve_boundaries && collapse_on_seam) {
+		const auto& faces = igl::circulation(e, true, EMAP, EF, EI);
+		if (faces.size() < 2) return false; // Should not happen on a closed mesh.
+		// A boundary edge will have one half-edge that has different UVs than the other.
+		// However, a simpler check is to see if one of the faces is an "infinity" face.
+		// We can't know the infinity vertex index here easily without more plumbing.
+		// Instead, we can reject any collapse on a "seam" edge that isn't a UV seam.
+		// A real UV seam will have a bundle size of 2. A boundary edge, treated as
+		// a seam, will not be distinguishable here without more info.
+		// For now, we will prevent all "seam" edges from collapsing if preserve_boundaries is on.
+		// This will protect UV seams as well, which might be too restrictive.
+		// A better approach would be to differentiate, but this is a safe starting point.
+		
+		Bundle bundle = get_half_edge_bundle( e, E, EF, EI, F, FT );
+		if (bundle.size() < 2) {
+			// This is a boundary edge for sure.
+			return false;
+		}
+
+		if(bundle[0].p[0].vi == s) {
+			assert(bundle[0].p[1].vi == d);
+			if((bundle[1].p[0].vi == s && bundle[0].p[0].tci == bundle[1].p[0].tci && bundle[0].p[1].tci == bundle[1].p[1].tci) ||
+			   (bundle[1].p[0].vi == d && bundle[0].p[0].tci == bundle[1].p[1].tci && bundle[0].p[1].tci == bundle[1].p[0].tci))
+			{
+				return false;
+			}
+		} else {
+			assert(bundle[0].p[0].vi == d && bundle[0].p[1].vi == s);
+			if((bundle[1].p[0].vi == d && bundle[0].p[0].tci == bundle[1].p[0].tci && bundle[0].p[1].tci == bundle[1].p[1].tci) ||
+			   (bundle[1].p[0].vi == s && bundle[0].p[0].tci == bundle[1].p[1].tci && bundle[0].p[1].tci == bundle[1].p[0].tci))
+			{
+				return false;
+			}
+		}
+	}
 
 	// If both endpoints are on seams, but there is no seam between them, reject it.
 	if( seam_edges.count( s ) && seam_edges.count( d ) && !collapse_on_seam ) {
@@ -318,7 +356,8 @@ bool collapse_edge_with_uv(
     std::vector<std::set<std::pair<double,int> >::iterator > & Qit,
     std::vector< placement_info_5d > & C,
     int & e,
-    bool test)
+    bool test,
+    bool preserve_boundaries)
 {
   	using namespace std;
   	using namespace Eigen;
@@ -347,7 +386,7 @@ bool collapse_edge_with_uv(
 
 	int e1,e2;
 	const bool collapsed =
-    	try_collapse_5d_Edge(e,C.at(e),V,F,E,EMAP,EF,EI,TC,FT,seam_edges,Vmetrics,e1,e2);
+    	try_collapse_5d_Edge(e,C.at(e),V,F,E,EMAP,EF,EI,TC,FT,seam_edges,Vmetrics,e1,e2, preserve_boundaries);
 	if(collapsed)
 	{
 		if(test == true ) {

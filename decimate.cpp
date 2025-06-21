@@ -63,6 +63,7 @@ void prepare_decimate_halfedge_5d(
     MapV5d & Vmetrics,
     int & target_num_vertices,
     const int seam_aware_degree,
+    bool preserve_boundaries,
     // output
     Eigen::MatrixXd & V,
 	Eigen::MatrixXi & F,
@@ -81,6 +82,19 @@ void prepare_decimate_halfedge_5d(
 	using namespace std;
 	using namespace igl;
 	
+	if( preserve_boundaries ) {
+		Eigen::MatrixXi E_b, EF_b, EI_b;
+		Eigen::VectorXi EMAP_b;
+		igl::edge_flaps(OF, E_b, EMAP_b, EF_b, EI_b);
+		for(int i = 0; i < E_b.rows(); ++i) {
+			if(EF_b(i, 1) == -1) {
+				const int v1 = E_b(i, 0);
+				const int v2 = E_b(i, 1);
+				insert_edge(seam_edges, v1, v2);
+			}
+		}
+	}
+
 	// Working copies
 	V = OV;
 	F = OF;
@@ -186,7 +200,9 @@ bool collapse_one_edge(
 	PriorityQueue & Q, 
 	std::vector<PriorityQueue::iterator > & Qit, 
 	std::vector< placement_info_5d > & C, 
-	int & prev_e)
+	int & prev_e,
+    bool preserve_boundaries
+	)
 {
 	using namespace std;
 	using namespace Eigen;
@@ -207,7 +223,7 @@ bool collapse_one_edge(
 			break;
 		}
 
-		if(collapse_edge_with_uv(V,F,E,EMAP,EF,EI,TC,FT,seam_edges,Vmetrics,seam_aware_degree,Q,Qit,C,e,debug))
+		if(collapse_edge_with_uv(V,F,E,EMAP,EF,EI,TC,FT,seam_edges,Vmetrics,seam_aware_degree,Q,Qit,C,e,debug, preserve_boundaries))
 		{
 			success = true;
 			break;
@@ -235,7 +251,8 @@ bool decimate_halfedge_5d(
     Eigen::MatrixXd & V_out,
     Eigen::MatrixXi & F_out,
     Eigen::MatrixXd & TC_out,
-    Eigen::MatrixXi & FT_out
+    Eigen::MatrixXi & FT_out,
+    bool preserve_boundaries
     )
 {
 	using namespace Eigen;
@@ -253,7 +270,7 @@ bool decimate_halfedge_5d(
 	PriorityQueue Q;
 	std::vector<PriorityQueue::iterator > Qit;
 	std::vector< placement_info_5d > C;
-	prepare_decimate_halfedge_5d(OV,OF,OTC,OFT,seam_edges,Vmetrics,target_num_vertices,seam_aware_degree,
+	prepare_decimate_halfedge_5d(OV,OF,OTC,OFT,seam_edges,Vmetrics,target_num_vertices,seam_aware_degree,preserve_boundaries,
 			V,F,TC,FT,EMAP,E,EF,EI,Q,Qit,C);
 	
 	int prev_e = -1;
@@ -276,7 +293,7 @@ bool decimate_halfedge_5d(
 			break;
 		}
 		
-		bool collapse_success = collapse_one_edge(V,F,TC,FT,EMAP,E,EF,EI,seam_edges,Vmetrics,seam_aware_degree,Q,Qit,C,prev_e);
+		bool collapse_success = collapse_one_edge(V,F,TC,FT,EMAP,E,EF,EI,seam_edges,Vmetrics,seam_aware_degree,Q,Qit,C,prev_e, preserve_boundaries);
 		if(!collapse_success) {
 			clean_finish = false;
 			break;
