@@ -63,7 +63,10 @@ bool decimate_halfedge_5d(
     Eigen::MatrixXi & F_out,
     Eigen::MatrixXd & TC_out,
     Eigen::MatrixXi & FT_out,
-    bool preserve_boundaries
+    bool preserve_boundaries,
+    double pos_scale,
+    double uv_weight,
+    double& max_geometric_error
     );
     
 void clean_mesh(
@@ -87,6 +90,8 @@ void prepare_decimate_halfedge_5d(
     int & target_num_vertices,
     const int seam_aware_degree,
     bool preserve_boundaries,
+    double pos_scale,
+    double uv_weight,
     // output
     Eigen::MatrixXd & V,
 	Eigen::MatrixXi & F,
@@ -116,7 +121,11 @@ bool collapse_one_edge(
 	std::vector<PriorityQueue::iterator > & Qit, 
 	std::vector< placement_info_5d > & C, 
 	int & prev_e,
-    bool preserve_boundaries);
+    bool preserve_boundaries,
+    double pos_scale,
+    double uv_weight,
+    Eigen::MatrixXd & V_scaled,
+    Eigen::MatrixXd & TC_scaled);
 
 static std::unordered_set<int> interior_foldovers;
 static std::unordered_set<int> exterior_foldovers;

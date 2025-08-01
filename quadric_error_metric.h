@@ -28,5 +28,7 @@ void half_edge_qslim_5d(
 	const Eigen::MatrixXi& F,
 	const Eigen::MatrixXd& TC, 
 	const Eigen::MatrixXi& FT, 
+    double pos_scale,
+    double uv_weight,
 	MapV5d & hash_Q);	
 #endif

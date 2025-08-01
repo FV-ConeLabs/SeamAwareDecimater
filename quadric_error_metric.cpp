@@ -4,7 +4,6 @@
 
 namespace {
 	const double eps = 1e-7;
-	const double uv_weight = 1e6;
 }
 void quadric_error_metric(
 	const Eigen::MatrixXd& V, 
@@ -46,7 +45,6 @@ void quadric_error_metric(
 	
 	// the cost v.T*Q*v should equal to zero
 	for( int i=0; i<V.rows(); i++ ) {
-		// cout << fabs(v * Q[i] * v.transpose()) << endl;
 		assert( fabs(V.row(i).homogeneous() * Q[i] * V.row(i).homogeneous().transpose()) <= eps );
 	}
 }
@@ -112,6 +110,8 @@ void half_edge_qslim_5d(
 	const Eigen::MatrixXi& F,
 	const Eigen::MatrixXd& TC, 
 	const Eigen::MatrixXi& FT, 
+    double pos_scale,
+    double uv_weight,
 	MapV5d & hash_Q)
 {
 	using namespace std;
@@ -124,12 +124,12 @@ void half_edge_qslim_5d(
 	
 		/// A. compute metric for each face
 		VectorXd p1(5),p2(5),p3(5);
-		p1.head(3) = V.row( F(i,0) );
-		p2.head(3) = V.row( F(i,1) );
-		p3.head(3) = V.row( F(i,2) );
-		p1.tail(2) = TC.row( FT(i,0) );
-		p2.tail(2) = TC.row( FT(i,1) );
-		p3.tail(2) = TC.row( FT(i,2) );
+		p1.head(3) = V.row( F(i,0) ) * pos_scale;
+		p2.head(3) = V.row( F(i,1) ) * pos_scale;
+		p3.head(3) = V.row( F(i,2) ) * pos_scale;
+		p1.tail(2) = TC.row( FT(i,0) ) * uv_weight;
+		p2.tail(2) = TC.row( FT(i,1) ) * uv_weight;
+		p3.tail(2) = TC.row( FT(i,2) ) * uv_weight;
 		// Paper Section 5.1
 		VectorXd e1 = (p2-p1)/(p2-p1).norm();
 		VectorXd e2 = p3-p1-(e1.dot(p3-p1))*e1;

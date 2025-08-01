@@ -12,8 +12,6 @@
 #include <igl/seam_edges.h>
 #include "cost_and_placement.h"
 
-bool debug = false;
-
 void clean_mesh(
 	const Eigen::MatrixXd & V,
 	const Eigen::MatrixXi & F,
@@ -64,6 +62,8 @@ void prepare_decimate_halfedge_5d(
     int & target_num_vertices,
     const int seam_aware_degree,
     bool preserve_boundaries,
+    double pos_scale,
+    double uv_weight,
     // output
     Eigen::MatrixXd & V,
 	Eigen::MatrixXi & F,
@@ -169,19 +169,20 @@ void prepare_decimate_halfedge_5d(
 	Qit.resize(E.rows());
 	// If an edge were collapsed, we'd collapse it to these points:
 	C.resize( E.rows() );
-	cout << "# edges: " << C.size() << endl;
+
+	Eigen::MatrixXd V_scaled = V * pos_scale;
+	Eigen::MatrixXd TC_scaled = TC * uv_weight;
 	
 	for ( int e=0; e<E.rows(); e++ )
 	{
 		double cost = -31337;
 		placement_info_5d new_placement;
 		Bundle b = get_half_edge_bundle( e, E, EF, EI, F, FT );
-		cost_and_placement_qslim5d_halfedge(b,V,F,TC,FT,seam_edges,Vmetrics,seam_aware_degree,cost,new_placement);
+		cost_and_placement_qslim5d_halfedge(b,V_scaled,F,TC_scaled,FT,seam_edges,Vmetrics,seam_aware_degree,pos_scale,uv_weight,cost,new_placement);
 		C.at(e) = new_placement;
 		Qit[e] = Q.insert(std::pair<double,int>(cost,e)).first;
 	}
 	assert( Q.size() == E.rows() );
-	std::cout << "building PriorityQueue succeeds." << std::endl;		
 }
 
 
@@ -201,7 +202,11 @@ bool collapse_one_edge(
 	std::vector<PriorityQueue::iterator > & Qit, 
 	std::vector< placement_info_5d > & C, 
 	int & prev_e,
-    bool preserve_boundaries
+    bool preserve_boundaries,
+    double pos_scale,
+    double uv_weight,
+    Eigen::MatrixXd & V_scaled,
+    Eigen::MatrixXd & TC_scaled
 	)
 {
 	using namespace std;
@@ -213,17 +218,15 @@ bool collapse_one_edge(
 	while(true) {
 		if(Q.empty())
 		{
-			cout << "empty queue" << endl;
 			break;
 		}
 		if(Q.begin()->first == std::numeric_limits<double>::infinity())
 		{
 			// min cost edge is infinite cost
-			cout << "min cost edge is infinite cost" << endl;
 			break;
 		}
 
-		if(collapse_edge_with_uv(V,F,E,EMAP,EF,EI,TC,FT,seam_edges,Vmetrics,seam_aware_degree,Q,Qit,C,e,debug, preserve_boundaries))
+		if(collapse_edge_with_uv(V,F,E,EMAP,EF,EI,TC,FT,seam_edges,Vmetrics,seam_aware_degree,Q,Qit,C,e, preserve_boundaries, pos_scale, uv_weight, V_scaled, TC_scaled))
 		{
 			success = true;
 			break;
@@ -252,7 +255,10 @@ bool decimate_halfedge_5d(
     Eigen::MatrixXi & F_out,
     Eigen::MatrixXd & TC_out,
     Eigen::MatrixXi & FT_out,
-    bool preserve_boundaries
+    bool preserve_boundaries,
+    double pos_scale,
+    double uv_weight,
+    double& max_error
     )
 {
 	using namespace Eigen;
@@ -271,40 +277,44 @@ bool decimate_halfedge_5d(
 	std::vector<PriorityQueue::iterator > Qit;
 	std::vector< placement_info_5d > C;
 	prepare_decimate_halfedge_5d(OV,OF,OTC,OFT,seam_edges,Vmetrics,target_num_vertices,seam_aware_degree,preserve_boundaries,
-			V,F,TC,FT,EMAP,E,EF,EI,Q,Qit,C);
+			pos_scale, uv_weight, V,F,TC,FT,EMAP,E,EF,EI,Q,Qit,C);
 	
+	Eigen::MatrixXd V_scaled = V * pos_scale;
+	Eigen::MatrixXd TC_scaled = TC * uv_weight;
+
 	int prev_e = -1;
-	bool clean_finish = false;
+	bool clean_finish = true;
 	int remain_vertices=V.rows();
+	double current_max_error = 0.0;
 	
 	int next_output_target = V.rows();
 	int suffix = 0;
-	while(true)
+	while(remain_vertices > target_num_vertices)
 	{		
 		if(Q.empty())
 		{
-			cout << "empty queue" << endl;
 			break;
 		}
-		if(Q.begin()->first == std::numeric_limits<double>::infinity())
+		const double cost = Q.begin()->first;
+		if(cost == std::numeric_limits<double>::infinity())
 		{
 			// min cost edge is infinite cost
-			cout << "min cost edge is infinite cost, left nums of vertices: " << remain_vertices << endl;
 			break;
 		}
 		
-		bool collapse_success = collapse_one_edge(V,F,TC,FT,EMAP,E,EF,EI,seam_edges,Vmetrics,seam_aware_degree,Q,Qit,C,prev_e, preserve_boundaries);
+		bool collapse_success = collapse_one_edge(V,F,TC,FT,EMAP,E,EF,EI,seam_edges,Vmetrics,seam_aware_degree,Q,Qit,C,prev_e, preserve_boundaries, pos_scale, uv_weight, V_scaled, TC_scaled);
 		if(!collapse_success) {
 			clean_finish = false;
 			break;
 		}
-		else if(remain_vertices <= target_num_vertices) {
-			clean_finish = true;
-			break;
-		}
+
+		const double error = sqrt(std::max(0.0, cost)) / pos_scale;
+		current_max_error = std::max(current_max_error, error);
+
 		remain_vertices--;
 	}
 
+	max_error = current_max_error;
 	// remove all DUV_COLLAPSE_EDGE_NULL faces
 	clean_mesh(V,F,TC,FT,OF.rows(),V_out,F_out,TC_out,FT_out);
 	return clean_finish;

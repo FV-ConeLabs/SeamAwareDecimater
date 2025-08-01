@@ -15,6 +15,8 @@ void cost_and_placement_qslim5d_halfedge (
 	const EdgeMap & seam_edges,
 	const MapV5d & Vmetrics,
 	const int seam_aware_degree,
+	double pos_scale,
+	double uv_weight,
 	double &                cost,
 	placement_info_5d &     new_placement
 	);

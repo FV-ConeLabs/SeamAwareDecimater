@@ -17,11 +17,15 @@ bool try_collapse_5d_Edge(
   	Eigen::MatrixXi & EI,
     Eigen::MatrixXd & TC, // TODO: Texture coordinates
     Eigen::MatrixXi & FT, // TODO: Texture coordinates per face.
+    Eigen::MatrixXd & V_scaled,
+    Eigen::MatrixXd & TC_scaled,
     EdgeMap & seam_edges, // TODO: A set of edges in V for vertices which lie on edges which should be preserved.
     MapV5d & Vmetrics, // TODO: The per-vertex data.
     int & a_e1,
     int & a_e2,
-    bool preserve_boundaries)
+    bool preserve_boundaries,
+    double pos_scale,
+    double uv_weight)
 {
 // Assign this to 0 rather than, say, -1 so that deleted elements will get
 	// draw as degenerate elements at vertex 0 (which should always exist and
@@ -155,19 +159,25 @@ bool try_collapse_5d_Edge(
 		assert( new_placement.tcs.size() == 2 );
 		assert( new_placement.metrics.size() == 2 );
 		// move source and destination to midpoint
-		V.row(s) = new_placement.p;
-		V.row(d) = new_placement.p;
+		V.row(s) = new_placement.p / pos_scale;
+		V.row(d) = new_placement.p / pos_scale;
+		V_scaled.row(s) = new_placement.p;
+		V_scaled.row(d) = new_placement.p;
 		// Update UV coordinates of the edge endpoints here. If both edge endpoints are on the seam, return false (see above). If one of the edge endpoints is on the seam, we should be able to handle it preserving that endpoint and collapsing the other one.
 		int he0_ts = bundle[0].p[0].tci;
 		int he0_td = bundle[0].p[1].tci;
         if( bundle[0].p[0].vi == d ) 	std::swap( he0_ts, he0_td );
-		TC.row(he0_ts) = new_placement.tcs[0];
-		TC.row(he0_td) = new_placement.tcs[0];
+		TC.row(he0_ts) = new_placement.tcs[0] / uv_weight;
+		TC.row(he0_td) = new_placement.tcs[0] / uv_weight;
+		TC_scaled.row(he0_ts) = new_placement.tcs[0];
+		TC_scaled.row(he0_td) = new_placement.tcs[0];
 		int he1_ts = bundle[1].p[0].tci;
 		int he1_td = bundle[1].p[1].tci;
         if( bundle[1].p[0].vi == d ) 	std::swap( he1_ts, he1_td );
-		TC.row(he1_ts) = new_placement.tcs[1];
-		TC.row(he1_td) = new_placement.tcs[1];
+		TC.row(he1_ts) = new_placement.tcs[1] / uv_weight;
+		TC.row(he1_td) = new_placement.tcs[1] / uv_weight;
+		TC_scaled.row(he1_ts) = new_placement.tcs[1];
+		TC_scaled.row(he1_td) = new_placement.tcs[1];
 		// Update the per-vertex metric.
         // Move the other d metrics to s.
 		Vmetrics[d].erase(he0_td);
@@ -178,15 +188,18 @@ bool try_collapse_5d_Edge(
 		Vmetrics[s][he1_ts] = new_placement.metrics[1];
 	}
 	else {
-//      if(seam_edges.count( s ) || seam_edges.count( d ))    cout << "try to decimate edge attached to seam." << endl;
 		assert( new_placement.tcs.size() == 1 );
 		assert( new_placement.metrics.size() == 1 );
 		// move source and destination to midpoint
-		V.row(s) = new_placement.p;
-		V.row(d) = new_placement.p;
+		V.row(s) = new_placement.p / pos_scale;
+		V.row(d) = new_placement.p / pos_scale;
+		V_scaled.row(s) = new_placement.p;
+		V_scaled.row(d) = new_placement.p;
 		// Update UV coordinates of the edge endpoints here. If both edge endpoints are on the seam, return false (see above). If one of the edge endpoints is on the seam, we should be able to handle it preserving that endpoint and collapsing the other one.
-		TC.row(s_tc) = new_placement.tcs[0];
-		TC.row(d_tc) = new_placement.tcs[0];
+		TC.row(s_tc) = new_placement.tcs[0] / uv_weight;
+		TC.row(d_tc) = new_placement.tcs[0] / uv_weight;
+		TC_scaled.row(s_tc) = new_placement.tcs[0];
+		TC_scaled.row(d_tc) = new_placement.tcs[0];
 		// Update the per-vertex metric.
 		// Move the other d metrics to s.
 		assert(bundle[0].p[0] == bundle[1].p[0] || bundle[0].p[0] == bundle[1].p[1]);
@@ -356,8 +369,11 @@ bool collapse_edge_with_uv(
     std::vector<std::set<std::pair<double,int> >::iterator > & Qit,
     std::vector< placement_info_5d > & C,
     int & e,
-    bool test,
-    bool preserve_boundaries)
+    bool preserve_boundaries,
+    double pos_scale,
+    double uv_weight,
+    Eigen::MatrixXd & V_scaled,
+    Eigen::MatrixXd & TC_scaled)
 {
   	using namespace std;
   	using namespace Eigen;
@@ -386,12 +402,9 @@ bool collapse_edge_with_uv(
 
 	int e1,e2;
 	const bool collapsed =
-    	try_collapse_5d_Edge(e,C.at(e),V,F,E,EMAP,EF,EI,TC,FT,seam_edges,Vmetrics,e1,e2, preserve_boundaries);
+    	try_collapse_5d_Edge(e,C.at(e),V,F,E,EMAP,EF,EI,TC,FT,V_scaled, TC_scaled,seam_edges,Vmetrics,e1,e2, preserve_boundaries, pos_scale, uv_weight);
 	if(collapsed)
 	{
-		if(test == true ) {
-    		cout << "try collapse succeed." << endl;
-    	}
 		// Erase the two, other collapsed edges
 		Q.erase(Qit[e1]);
 		Qit[e1] = Q.end();
@@ -417,9 +430,7 @@ bool collapse_edge_with_uv(
 				}
 			}
 		}
-		if(test == true ) {
-    		cout << "first loop succeed." << endl;
-    	}
+
 		for( auto ei : affected_edges )
 		{
 			if( E(ei,0) != DUV_COLLAPSE_EDGE_NULL && E(ei,1) != DUV_COLLAPSE_EDGE_NULL )
@@ -431,20 +442,14 @@ bool collapse_edge_with_uv(
 				double cost;
 				placement_info_5d place;
 				Bundle b = get_half_edge_bundle( ei, E, EF, EI, F, FT );
-				cost_and_placement_qslim5d_halfedge(b,V,F,TC,FT,seam_edges,Vmetrics,seam_aware_degree,cost,place);
+				cost_and_placement_qslim5d_halfedge(b,V_scaled,F,TC_scaled,FT,seam_edges,Vmetrics,seam_aware_degree,pos_scale,uv_weight,cost,place);
 				// Replace in queue
 				Qit[ei] = Q.insert(std::pair<double,int>(cost,ei)).first;
 				C.at(ei) = place;
 			}
 		}
-		if(test == true ) {
-    		cout << "second loop succeed." << endl;
-    	}
 	} else
 	{
-		if(test == true ) {
-    		cout << "try collapse failed." << endl;
-    	}
 		// reinsert with infinite weight (the provided cost function must **not**
 		// have given this un-collapsable edge inf cost already)
 		p.first = std::numeric_limits<double>::infinity();

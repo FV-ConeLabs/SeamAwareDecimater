@@ -10,6 +10,8 @@
 #include <iostream>
 #include <cassert>
 #include <cstdio> // printf()
+#include <iomanip>
+#include <sstream>
 
 #include <igl/seam_edges.h>
 #include <igl/edge_flaps.h>
@@ -22,8 +24,15 @@ namespace {
 
 void usage( const char* argv0 )
 {
-    std::cerr << "Usage: " << argv0 << " <path/to/input.obj> num-vertices     <target_number_of_vertices>  [--strict] [<strictness>] [--preserve-boundaries]" << std::endl;
-    std::cerr << "Usage: " << argv0 << " <path/to/input.obj> percent-vertices <target_percent_of_vertices> [--strict] [<strictness>] [--preserve-boundaries]" << std::endl;
+    std::cerr << "Usage: " << argv0 << " <path/to/input.obj> <command> <parameter> [<output.obj>] [options]" << std::endl << std::endl;
+    std::cerr << "Commands:" << std::endl;
+    std::cerr << "  num-vertices <N>      Decimate to N vertices." << std::endl;
+    std::cerr << "  percent-vertices <P>  Decimate to P% of original vertices." << std::endl << std::endl;
+    std::cerr << "Options:" << std::endl;
+    std::cerr << "  --strict <degree>        Set seam awareness (0: NoUVShapePreserving, 1: UVShapePreserving, 2: Seamless (default))." << std::endl;
+    std::cerr << "  --preserve-boundaries    Prevent boundary edges from being collapsed." << std::endl;
+    std::cerr << "  --uv-weight <weight>     Set weight for relative UV error weight (default: 1.0)." << std::endl << std::endl;
+    std::cerr << "If an output file is not specified, one is generated with the final geometric error in its name." << std::endl;
     exit(-1);
 }
 
@@ -78,13 +87,27 @@ bool decimate_down_to(
     Eigen::MatrixXd& TC_out,
     Eigen::MatrixXi& FT_out,
     int seam_aware_degree,
-    bool preserve_boundaries
+    bool preserve_boundaries,
+	double uv_weight,
+	double& max_error
     )
 {
-// #define DEBUG_DECIMATE_DOWN_TO
     assert( target_num_vertices > 0 );
     assert( target_num_vertices < V.rows() );
     
+	const double TARGET_AVG_AREA = 1.0; 
+
+    double total_area = 0.0;
+    for (int i = 0; i < F.rows(); ++i) {
+        const Eigen::Vector3d v0 = V.row(F(i, 0));
+        const Eigen::Vector3d v1 = V.row(F(i, 1));
+        const Eigen::Vector3d v2 = V.row(F(i, 2));
+        total_area += 0.5 * ((v1 - v0).cross(v2 - v0)).norm();
+    }
+
+    const double avg_area = (F.rows() > 0) ? (total_area / F.rows()) : 0.0;
+    const double pos_scale = (avg_area > 1e-12) ? sqrt(TARGET_AVG_AREA / avg_area) : 1.0;
+
     /// 3D triangle mesh with UVs.
     // 3D
     assert( V.cols() == 3 );
@@ -98,14 +121,6 @@ bool decimate_down_to(
     // Print information about seams.
     Eigen::MatrixXi seams, boundaries, foldovers;
     igl::seam_edges( V, TC, F, FT, seams, boundaries, foldovers );
-#ifdef DEBUG_DECIMATE_DOWN_TO
-    std::cout << "seams: " << seams.rows() << "\n";
-    std::cout << seams << std::endl;
-    std::cout << "boundaries: " << boundaries.rows() << "\n";
-    std::cout << boundaries << std::endl;
-    std::cout << "foldovers: " << foldovers.rows() << "\n";
-    std::cout << foldovers << std::endl;
-#endif
     
     // Collect all vertex indices involved in seams.
     std::unordered_set< int > seam_vertex_indices;
@@ -170,7 +185,7 @@ bool decimate_down_to(
     Eigen::VectorXi J;
     
 	MapV5d hash_Q;
-	half_edge_qslim_5d(V,F,TC,FT,hash_Q);
+	half_edge_qslim_5d(V,F,TC,FT,pos_scale, uv_weight, hash_Q);
 	std::cout << "computing initial metrics finished\n" << std::endl;
 	success = decimate_halfedge_5d(
 		V, F,
@@ -181,11 +196,12 @@ bool decimate_down_to(
 		seam_aware_degree,
 		V_out, F_out,
 		TC_out, FT_out,
-		preserve_boundaries
+		preserve_boundaries,
+		pos_scale,
+		uv_weight,
+		max_error
 		);
 	std::cout << "#seams after decimation: " << count_seam_edge_num(seam_vertex_edges) << std::endl;
-    std::cout << "#interior foldeover: " << interior_foldovers.size() << std::endl;
-    std::cout << "#exterior foldeover: " << exterior_foldovers.size() << std::endl;
     return success;
 }
 }
@@ -198,6 +214,9 @@ int main( int argc, char* argv[] ) {
 	if ( found_strictness ) {
 		seam_aware_degree = atoi(strictness.c_str());
 	}
+	std::string uv_weight_str = "1.0";
+	pythonlike::get_optional_parameter(args, "--uv-weight", uv_weight_str);
+	const double uv_weight = pythonlike::strto<double>(uv_weight_str);
     bool preserve_boundaries = false;
     for (auto it = args.begin(); it != args.end(); ) {
         if (*it == "--preserve-boundaries") {
@@ -257,9 +276,9 @@ int main( int argc, char* argv[] ) {
         return 0;
     }
     
-    // Make the default output path.
-    std::string output_path = pythonlike::os_path_splitext( input_path ).first + "-decimated_to_" + std::to_string( target_num_vertices ) + "_vertices.obj";
-    if( !args.empty() ) {
+    bool custom_output_path = !args.empty();
+    std::string output_path;
+    if( custom_output_path ) {
         output_path = args.front();
         args.erase( args.begin() );
     }
@@ -270,11 +289,21 @@ int main( int argc, char* argv[] ) {
     // Decimate!
     Eigen::MatrixXd V_out, TC_out, CN_out;
     Eigen::MatrixXi F_out, FT_out, FN_out;
-    const bool success = decimate_down_to( V, F, TC, FT, target_num_vertices, V_out, F_out, TC_out, FT_out, seam_aware_degree, preserve_boundaries );
+	double final_error = 0.0;
+    const bool success = decimate_down_to( V, F, TC, FT, target_num_vertices, V_out, F_out, TC_out, FT_out, seam_aware_degree, preserve_boundaries, uv_weight, final_error );
     if( !success ) {
         std::cerr << "WARNING: decimate_down_to() returned false (target number of vertices may have been unachievable)." << std::endl;
     }
     
+    if ( !custom_output_path )
+    {
+        std::stringstream error_ss;
+        error_ss << std::fixed << std::setprecision(6) << final_error;
+        output_path = pythonlike::os_path_splitext( input_path ).first + 
+                                  "-decimated_to_" + std::to_string( V_out.rows() ) + 
+                                  "_err_" + error_ss.str() + ".obj";
+    }
+
     if( !igl::writeOBJ( output_path, V_out, F_out, CN_out, FN_out, TC_out, FT_out ) ) {
         std::cerr << "ERROR: Could not write OBJ: " << output_path << std::endl;
         usage( argv[0] );

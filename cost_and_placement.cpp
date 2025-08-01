@@ -49,46 +49,40 @@ Eigen::Vector4d face_from_three_points (
 }
 
 void cost_and_placement_qslim5d_halfedge (
-	const Bundle & e,
+	const Bundle & b,
 	const Eigen::MatrixXd & V,
 	const Eigen::MatrixXi & F,
 	const Eigen::MatrixXd & TC,
 	const Eigen::MatrixXi & FT,
 	const EdgeMap & seam_edges,
-	const MapV5d  & Vmetrics,
+	const MapV5d & Vmetrics,
 	const int seam_aware_degree,
+	double pos_scale,
+	double uv_weight,
 	double &                cost,
 	placement_info_5d &     new_placement
 	)
 {
-
-	// Assign this to 0 rather than, say, -1 so that deleted elements will get
-	// draw as degenerate elements at vertex 0 (which should always exist and
-	// never get collapsed to anything else since it is the smallest index)
 	using namespace Eigen;
 	using namespace std;
 
 	// If one of the endpoints is the special vertex at infinity, don't touch it.
-	assert( e.size() == 2 );		//  each edge has two half-edge
+	assert( b.size() == 2 );		//  each edge has two half-edge
 	const bool has_infinity_vertex = V.row( V.rows()-1 ).minCoeff() == DINF;
 	if( has_infinity_vertex 
-	  	&& (/* F(e[0].fi, e[0].ki) == V.rows()-1 
-	   		|| F(e[1].fi, e[1].ki) == V.rows()-1
-	   		||*/ e[0].p[0].vi == V.rows()-1
-	   		|| e[0].p[1].vi == V.rows()-1) ) {
+	  	&& (/* F(b[0].fi, b[0].ki) == V.rows()-1 
+	   		|| F(b[1].fi, b[1].ki) == V.rows()-1
+	   		||*/ b[0].p[0].vi == V.rows()-1
+	   		|| b[0].p[1].vi == V.rows()-1) ) {
 		cost = DINF;
 		return;
 	}
 		
-#ifdef DEBUG_MODE
-	cout << "No infinite vertex." << endl;
-#endif
-	
 	solver = EIQUADPROG;
 	MatrixXd new_metric;
 	
-	// two vertex indices on one side of e
-	const int vi[2] = {e[0].p[0].vi, e[0].p[1].vi};
+	// two vertex indices on one side of b
+	const int vi[2] = {b[0].p[0].vi, b[0].p[1].vi};
 	// If vi[0] and vi[1] are in seam_edges, but (vi[0], vi[1]) is not, return infinite cost.
 	if( seam_edges.count( vi[0] ) && seam_edges.count( vi[1] ) && !contains_edge( seam_edges, vi[0], vi[1] ) ) {
 	    cost = DINF;
@@ -98,14 +92,14 @@ void cost_and_placement_qslim5d_halfedge (
 	/// case 1: 
 	// (vi[0], vi[1]) in seam_edges, compute each half edge
 	if( contains_edge( seam_edges, vi[0], vi[1] ) ) {
-		VertexBundle e_p0[2];		// two Vertex5d for both sides at one end
-		VertexBundle e_p1[2];		// two Vertex5d for both sides at the other end
+		VertexBundle b_p0[2];		// two Vertex5d for both sides at one end
+		VertexBundle b_p1[2];		// two Vertex5d for both sides at the other end
 		MatrixXd m[2];				// two metrics
 		for(int side=0; side<2; side++) {
-			e_p0[side] = e[side].p[0];
-			e_p1[side] = e[side].p[1];
-			m[side] = Vmetrics.at(e_p0[side].vi).at(e_p0[side].tci) 
-					+ Vmetrics.at(e_p1[side].vi).at(e_p1[side].tci);
+			b_p0[side] = b[side].p[0];
+			b_p1[side] = b[side].p[1];
+			m[side] = Vmetrics.at(b_p0[side].vi).at(b_p0[side].tci) 
+					+ Vmetrics.at(b_p1[side].vi).at(b_p1[side].tci);
 		}
 		
 		// TODO: Check that the seam edges are collinear with
@@ -135,21 +129,21 @@ void cost_and_placement_qslim5d_halfedge (
 		};
 		
 		bool is_free[2] = {false, false};	// Correspond to vi[2] 	
-		// for each end of one side, search its neighbor seam edges to check if anyone is collinear with e
+		// for each end of one side, search its neighbor seam edges to check if anyone is collinear with b's uvs 
 		for(int end=0; end<2; end++) {
 			// An end is free only if it has exactly two neighboring seam edges
 			if(seam_edges.at(vi[end]).size() != 2)	continue;
 			for(auto vj : seam_edges.at(vi[end])) {		// all the neighboring seam vertices.
-				// test if exist one vertex which has two uvs collinear with both sides of e's uvs 
+				// test if exist one vertex which has two uvs collinear with both sides of b's uvs 
 				if( vj == vi[1-end] )	continue;
                 double ratio[2] = {DINF, DINF};
 				for(auto item : Vmetrics.at(vj)) {		// all the tci for one neighboring seam vertex.
 					int tcj = item.first;
-					if(is_collinear(tcj, e_p0[0].tci, e_p1[0].tci)) {
-						ratio[0] = edge_ratio(tcj, e_p0[0].tci, e_p1[0].tci);
+					if(is_collinear(tcj, b_p0[0].tci, b_p1[0].tci)) {
+						ratio[0] = edge_ratio(tcj, b_p0[0].tci, b_p1[0].tci);
 					}
-					if(is_collinear(tcj, e_p0[1].tci, e_p1[1].tci)) {
-						ratio[1] = edge_ratio(tcj, e_p1[1].tci, e_p0[1].tci);
+					if(is_collinear(tcj, b_p0[1].tci, b_p1[1].tci)) {
+						ratio[1] = edge_ratio(tcj, b_p1[1].tci, b_p0[1].tci);
 					}
 				}
 				switch (seam_aware_degree) {
@@ -168,7 +162,7 @@ void cost_and_placement_qslim5d_halfedge (
 			cost = DINF;
 			return;
 		}
-		// Otherwise, if any end is not free, collapse e to it.
+		// Otherwise, if any end is not free, collapse b to it.
 		for(int end=0; end<2; end++) {
 			if( !is_free[end] ) {
 				cost = 0;
@@ -177,9 +171,9 @@ void cost_and_placement_qslim5d_halfedge (
 				for(int side=0; side<2; side++) {
 					RowVectorXd v(6);
 					v.setOnes();
-					assert(e[side].p[end].vi == vi[end] || e[side].p[end].vi == vi[1-end]);
+					assert(b[side].p[end].vi == vi[end] || b[side].p[end].vi == vi[1-end]);
 					v.head(3) = V.row(vi[end]);
-					v.segment(3,2) = e[side].p[end].vi == vi[end] ? TC.row(e[side].p[end].tci) : TC.row(e[side].p[1-end].tci);
+					v.segment(3,2) = b[side].p[end].vi == vi[end] ? TC.row(b[side].p[end].tci) : TC.row(b[side].p[1-end].tci);
 					cost += v*m[side]*v.transpose();
 					new_placement.p = v.head(3);
 					new_placement.tcs[side] = v.segment(3,2);
@@ -194,7 +188,7 @@ void cost_and_placement_qslim5d_halfedge (
 		// The unknowns are x,y,z,u0,v0,u1,v1,1
 		MatrixXd G(8,8);
 		G.setZero();
-		// combine both sides' metric of e
+		// combine both sides' metric of b
 		if( solver == EIQUADPROG ) {
 			// build new metric
 			G.block(0,0,3,3) = m[0].block(0,0,3,3) + m[1].block(0,0,3,3);
@@ -219,26 +213,26 @@ void cost_and_placement_qslim5d_halfedge (
 			G.block(0,0,8,8) = G.block(0,0,8,8) + w*reg;
 			VectorXd g0(8);
 			g0.setOnes();
-			g0.segment(0,3) = (V.row(e_p0[0].vi)+V.row(e_p1[0].vi))/2;
-			g0.segment(3,2) = (TC.row(e_p0[0].tci)+TC.row(e_p1[0].tci))/2;
-			g0.segment(5,2) = (TC.row(e_p0[1].tci)+TC.row(e_p1[1].tci))/2;
+			g0.segment(0,3) = (V.row(b_p0[0].vi)+V.row(b_p1[0].vi))/2;
+			g0.segment(3,2) = (TC.row(b_p0[0].tci)+TC.row(b_p1[0].tci))/2;
+			g0.segment(5,2) = (TC.row(b_p0[1].tci)+TC.row(b_p1[1].tci))/2;
 			g0 = -w*g0;
 			
 			// Add the constraint that uv0 and uv1 stay on the same uv-space line
 			// and the new position should have the same parameter along each edge.
 			// equality constraints:
 			// x(7) - 1 = 0
-			// (x(3) - e0_u0) - t(e0_u1 - e0_u0) = 0
-			// (x(4) - e0_v0) - t(e0_v1 - e0_v0) = 0
-			// (x(5) - e1_u0) - t(e1_u1 - e1_u0) = 0
-			// (x(6) - e1_v0) - t(e1_v1 - e1_v0) = 0
+			// (x(3) - b0_u0) - t(b0_u1 - b0_u0) = 0
+			// (x(4) - b0_v0) - t(b0_v1 - b0_v0) = 0
+			// (x(5) - b1_u0) - t(b1_u1 - b1_u0) = 0
+			// (x(6) - b1_v0) - t(b1_v1 - b1_v0) = 0
 			// Original code start
-			// RowVector2d vec[2] = {TC.row(e_p1[0].tci) - TC.row(e_p0[0].tci),
-			// 					  TC.row(e_p1[1].tci) - TC.row(e_p0[1].tci)};
+			// RowVector2d vec[2] = {TC.row(b_p1[0].tci) - TC.row(b_p0[0].tci),
+			// 					  TC.row(b_p1[1].tci) - TC.row(b_p0[1].tci)};
 			// assert( vec[0].norm() != 0 && vec[1].norm() != 0 );
 			// Original code end
-			RowVector2d vec[2] = {TC.row(e_p1[0].tci) - TC.row(e_p0[0].tci),
-                      TC.row(e_p1[1].tci) - TC.row(e_p0[1].tci)};
+			RowVector2d vec[2] = {TC.row(b_p1[0].tci) - TC.row(b_p0[0].tci),
+                      TC.row(b_p1[1].tci) - TC.row(b_p0[1].tci)};
 
 			// Check for zero-length UV edges and return infinite cost
 			const double uv_epsilon = 1e-10;
@@ -259,28 +253,28 @@ void cost_and_placement_qslim5d_halfedge (
 			CE.setZero();
 			CE(7,0) = 1.0;
 			ce0(0) = -1;
-			if( vec[0](0) != 0 ) {		 // t = (x(3) - e0_u0)/(e0_u1 - e0_u0)
+			if( vec[0](0) != 0 ) {		 // t = (x(3) - b0_u0)/(b0_u1 - b0_u0)
 				CE(3,1) = -vec[0](1);
 				CE(4,1) = vec[0](0);
-				ce0(1) = vec[0](1)*TC.row(e_p0[0].tci)(0) - vec[0](0)*TC.row(e_p0[0].tci)(1);
+				ce0(1) = vec[0](1)*TC.row(b_p0[0].tci)(0) - vec[0](0)*TC.row(b_p0[0].tci)(1);
 				CE(3,2) = -vec[1](0);
 				CE(5,2) = vec[0](0);
-				ce0(2) = vec[1](0)*TC.row(e_p0[0].tci)(0) - vec[0](0)*TC.row(e_p0[1].tci)(0);
+				ce0(2) = vec[1](0)*TC.row(b_p0[0].tci)(0) - vec[0](0)*TC.row(b_p0[1].tci)(0);
 				CE(3,3) = -vec[1](1);
 				CE(6,3) = vec[0](0);
-				ce0(3) = vec[1](1)*TC.row(e_p0[0].tci)(0) - vec[0](0)*TC.row(e_p0[1].tci)(1);
+				ce0(3) = vec[1](1)*TC.row(b_p0[0].tci)(0) - vec[0](0)*TC.row(b_p0[1].tci)(1);
 			}
-			else {						// t = (x(4) - e0_v0)/(e0_v1 - e0_v0)
+			else {						// t = (x(4) - b0_v0)/(b0_v1 - b0_v0)
 				assert( vec[0](1) != 0 );
 				CE(4,1) = -vec[0](0);
 				CE(3,1) = vec[0](1);
-				ce0(1) = vec[0](0)*TC.row(e_p0[0].tci)(1) - vec[0](1)*TC.row(e_p0[0].tci)(0);
+				ce0(1) = vec[0](0)*TC.row(b_p0[0].tci)(1) - vec[0](1)*TC.row(b_p0[0].tci)(0);
 				CE(4,2) = -vec[1](0);
 				CE(5,2) = vec[0](1);
-				ce0(2) = vec[1](0)*TC.row(e_p0[0].tci)(1) - vec[0](1)*TC.row(e_p0[1].tci)(0);
+				ce0(2) = vec[1](0)*TC.row(b_p0[0].tci)(1) - vec[0](1)*TC.row(b_p0[1].tci)(0);
 				CE(4,3) = -vec[1](1);
 				CE(6,3) = vec[0](1);
-				ce0(3) = vec[1](1)*TC.row(e_p0[0].tci)(1) - vec[0](1)*TC.row(e_p0[1].tci)(1);
+				ce0(3) = vec[1](1)*TC.row(b_p0[0].tci)(1) - vec[0](1)*TC.row(b_p0[1].tci)(1);
 			}
 			
 			// inequality constraints:
@@ -291,16 +285,16 @@ void cost_and_placement_qslim5d_halfedge (
 			if( vec[0](0) != 0 ) {
 				double sign = vec[0](0) > 0 ? 1 : -1;
 				CI(3,0) = sign;
-				ci0(0) = -sign*TC.row(e_p0[0].tci)(0);
+				ci0(0) = -sign*TC.row(b_p0[0].tci)(0);
 				CI(3,1) = -sign;
-				ci0(1) = sign*(TC.row(e_p0[0].tci)(0)+vec[0](0));
+				ci0(1) = sign*(TC.row(b_p0[0].tci)(0)+vec[0](0));
 			}
 			else {
 				double sign = vec[0](1) > 0 ? 1 : -1;
 				CI(4,0) = sign;
-				ci0(0) = -sign*TC.row(e_p0[0].tci)(1);
+				ci0(0) = -sign*TC.row(b_p0[0].tci)(1);
 				CI(4,1) = -sign;
-				ci0(1) = sign*(TC.row(e_p0[0].tci)(1)+vec[0](1));
+				ci0(1) = sign*(TC.row(b_p0[0].tci)(1)+vec[0](1));
 			}
 			
 			solve_quadprog(G,g0,CE,ce0,CI,ci0,Z);
@@ -322,8 +316,8 @@ void cost_and_placement_qslim5d_halfedge (
 
 	/// case 2:
 	// new metric is the summation of the collapsed vertices' metrics
-	assert( e[0].p[0] == e[1].p[1] && e[0].p[1] == e[1].p[0] );
-	const int tci[2] = {e[0].p[0].tci, e[0].p[1].tci};
+	assert( b[0].p[0] == b[1].p[1] && b[0].p[1] == b[1].p[0] );
+	const int tci[2] = {b[0].p[0].tci, b[0].p[1].tci};
 	new_metric = Vmetrics.at(vi[0]).at(tci[0]) + Vmetrics.at(vi[1]).at(tci[1]);
 	assert( new_metric.transpose() == new_metric ); // all the metrics are symmetric
 	
