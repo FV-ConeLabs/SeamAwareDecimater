@@ -74,7 +74,6 @@ bool collapse_edge_with_uv(
     std::vector<std::set<std::pair<double,int> >::iterator > & Qit,
     std::vector< placement_info_5d > & C,
     int & e,
-    bool test,
     bool preserve_boundaries,
     double pos_scale,
     double uv_weight,
